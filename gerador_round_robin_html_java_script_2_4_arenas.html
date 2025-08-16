@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gerador de Campeonato — Todos vs Todos (2–4 Arenas)</title>
+  <style>
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#ffffff; --primary:#4f46e5; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial}
+    .container{max-width:1100px;margin:0 auto;padding:24px;}
+    h1{font-size:clamp(20px,3vw,28px);margin:0 0 4px;font-weight:800}
+    .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+    .grid{display:grid;gap:16px}
+    @media(min-width:900px){.grid-2{grid-template-columns:1fr 1fr}}
+    .card{background:var(--card);border:1px solid #e5e7eb;border-radius:16px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,.04)}
+    label{font-weight:600;display:block;margin-bottom:6px}
+    textarea{width:100%;min-height:220px;resize:vertical;border:1px solid #e5e7eb;border-radius:12px;padding:12px}
+    input[type=range]{width:180px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+    .btn:hover{filter:brightness(.98)}
+    .kpi{font-size:14px;color:#111}
+    .kpi span{color:#111;font-weight:600}
+    .muted{color:var(--muted);font-size:12px}
+    .round{border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+    .round h3{margin:0 0 8px;font-size:15px}
+    pre{white-space:pre-wrap;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:12px;max-height:320px;overflow:auto}
+    .footer{color:#94a3b8;font-size:12px;text-align:center;padding:24px 0}
+    .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .badge{background:#eef2ff;border:1px solid #e0e7ff;color:#3730a3;padding:4px 8px;border-radius:999px;font-size:12px}
+    .list{margin:0;padding-left:16px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Gerador de Campeonato — Todos vs Todos</h1>
+      <div class="sub">2–4 arenas • número mínimo de rodadas • HTML + JavaScript puro</div>
+    </header>
+
+    <section class="grid grid-2">
+      <div class="card">
+        <label for="teams">Equipes (uma por linha)</label>
+        <textarea id="teams" spellcheck="false">Equipe 1
+Equipe 2
+Equipe 3
+Equipe 4
+Equipe 5
+Equipe 6</textarea>
+        <div class="row" style="margin-top:8px">
+          <label style="margin:0">Arenas:</label>
+          <input id="arenas" type="range" min="2" max="6" step="1" value="2" />
+          <span id="arenasVal" class="badge">2</span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="generate" class="btn primary">Gerar calendário</button>
+          <button id="copyTxt" class="btn">Copiar texto</button>
+          <button id="dlCsv" class="btn">Baixar CSV</button>
+        </div>
+        <div class="muted" style="margin-top:8px">Duplicados são removidos automaticamente. Cada equipe joga no máximo uma vez por rodada.</div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:18px">Resumo</h2>
+        <ul class="kpi list" id="summary">
+          <li><span>Equipes:</span> —</li>
+          <li><span>Jogos totais:</span> —</li>
+          <li><span>Rodadas base (método do círculo):</span> —</li>
+          <li><span>Rodadas mínimas com <span id="summaryArenas">2</span> arenas:</span> —</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0;font-size:18px">Calendário Gerado</h2>
+        <div class="muted">Formato: "Arena N: A × B"</div>
+      </div>
+      <div id="schedule"></div>
+    </section>
+
+    <section class="card" id="plainWrap" style="display:none">
+      <h3 style="margin-top:0">Texto simples</h3>
+      <pre id="plain"></pre>
+    </section>
+
+    <div class="footer">Feito para organizar campeonatos rápido. ✨</div>
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const teamsEl = $('#teams');
+    const arenasEl = $('#arenas');
+    const arenasVal = $('#arenasVal');
+    const summary = $('#summary');
+    const summaryArenas = $('#summaryArenas');
+    const scheduleWrap = $('#schedule');
+    const plainWrap = $('#plainWrap');
+    const plainPre = $('#plain');
+
+    arenasEl.addEventListener('input', () => {
+      arenasVal.textContent = arenasEl.value;
+      summaryArenas.textContent = arenasEl.value;
+    });
+
+    function parseTeams(text){
+      const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      const seen = new Set();
+      const out = [];
+      for(const name of lines){
+        const key = name.toLowerCase();
+        if(!seen.has(key)) { seen.add(key); out.push(name); }
+      }
+      return out;
+    }
+
+    function generateRoundRobinPairs(inputTeams){
+      const list = [...inputTeams];
+      const isOdd = list.length % 2 === 1;
+      if(isOdd) list.push('(BYE)');
+      const n = list.length; // par
+      const rounds = n - 1;
+      let arr = [...list];
+      const allRounds = [];
+
+      for(let r=0; r<rounds; r++){
+        const pairs = [];
+        for(let i=0; i<n/2; i++){
+          const a = arr[i];
+          const b = arr[n-1-i];
+          if(a !== '(BYE)' && b !== '(BYE)') pairs.push({a,b});
+        }
+        allRounds.push(pairs);
+        // Rotação do método do círculo (fixa o primeiro)
+        const fixed = arr[0];
+        const tail = arr.pop();
+        arr = [fixed, tail, ...arr.slice(1)];
+      }
+      return allRounds; // Array de rounds (cada round é lista de partidas)
+    }
+
+    function allocateArenas(allRounds, arenasCount){
+      const out = [];
+      let roundNumber = 1;
+      for(const pairs of allRounds){
+        for(let i=0; i<pairs.length; i += arenasCount){
+          const slice = pairs.slice(i, i + arenasCount);
+          const slots = slice.map((m, idx)=>({ arena: idx+1, a:m.a, b:m.b }));
+          out.push({ roundNumber, slots });
+          roundNumber++;
+        }
+      }
+      return out; // cada item é uma "sub-rodada" com até N arenas
+    }
+
+    function computeStats(teams, arenas){
+      const n = teams.length;
+      const totalMatches = n*(n-1)/2;
+      const matchesPerRoundBase = Math.floor(n/2);
+      const roundsBase = (n % 2 === 0) ? (n - 1) : n; // com BYE
+      const subRoundsPerRound = Math.max(1, Math.ceil(matchesPerRoundBase / arenas));
+      const totalRoundsMin = roundsBase * subRoundsPerRound;
+      return {n, totalMatches, roundsBase, totalRoundsMin};
+    }
+
+    function renderSummary(s, arenas){
+      const html = `
+        <li><span>Equipes:</span> ${s.n}</li>
+        <li><span>Jogos totais:</span> ${s.totalMatches}</li>
+        <li><span>Rodadas base (método do círculo):</span> ${s.roundsBase}</li>
+        <li><span>Rodadas mínimas com <span id="summaryArenas">${arenas}</span> arenas:</span> ${s.totalRoundsMin}</li>
+      `;
+      summary.innerHTML = html;
+    }
+
+    function renderSchedule(schedule){
+      if(schedule.length === 0){
+        scheduleWrap.innerHTML = '<div class="muted">Preencha as equipes e clique em "Gerar calendário".</div>';
+        plainWrap.style.display = 'none';
+        return;
+      }
+      let html = '';
+      const lines = [];
+      for(const r of schedule){
+        html += `<div class="round"><h3>Rodada ${r.roundNumber}</h3><ul class="list">`;
+        lines.push(`Rodada ${r.roundNumber}`);
+        for(const s of r.slots){
+          html += `<li>Arena ${s.arena}: ${escapeHtml(s.a)} × ${escapeHtml(s.b)}</li>`;
+          lines.push(`Arena ${s.arena}: ${s.a} × ${s.b}`);
+        }
+        html += `</ul></div>`;
+        lines.push('');
+      }
+      scheduleWrap.innerHTML = html;
+      plainPre.textContent = lines.join('\n');
+      plainWrap.style.display = 'block';
+    }
+
+    function escapeHtml(str){
+      return String(str).replace(/[&<>"']/g, s=>({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'
+      })[s]);
+    }
+
+    function toCSV(schedule){
+      const rows = [["Rodada","Arena","Equipe A","Equipe B"]];
+      for(const r of schedule){
+        for(const s of r.slots){
+          rows.push([r.roundNumber, s.arena, s.a, s.b]);
+        }
+      }
+      return rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
+    }
+
+    function download(filename, text){
+      const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    $('#generate').addEventListener('click', ()=>{
+      const arenas = Math.max(2, Math.min(6, parseInt(arenasEl.value, 10) || 2));
+      const teams = parseTeams(teamsEl.value);
+      if(teams.length < 2){
+        alert('Adicione pelo menos 2 equipes.');
+        return;
+      }
+      const base = generateRoundRobinPairs(teams);
+      const schedule = allocateArenas(base, arenas);
+      const s = computeStats(teams, arenas);
+      renderSummary(s, arenas);
+      renderSchedule(schedule);
+      scheduleWrap.dataset.csv = toCSV(schedule); // guarda para exportar
+    });
+
+    $('#copyTxt').addEventListener('click', ()=>{
+      if(!plainPre.textContent.trim()){
+        alert('Gere o calendário primeiro.');
+        return;
+      }
+      navigator.clipboard.writeText(plainPre.textContent).then(()=>{
+        alert('Calendário copiado!');
+      });
+    });
+
+    $('#dlCsv').addEventListener('click', ()=>{
+      const csv = scheduleWrap.dataset.csv || '';
+      if(!csv){
+        alert('Gere o calendário primeiro.');
+        return;
+      }
+      download('campeonato_round_robin.csv', csv);
+    });
+
+    // Inicializa resumo
+    renderSummary(computeStats(parseTeams(teamsEl.value), parseInt(arenasEl.value,10)), parseInt(arenasEl.value,10));
+    renderSchedule([]);
+  </script>
+</body>
+</html>
