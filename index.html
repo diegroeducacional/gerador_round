@@ -524,21 +524,26 @@ Equipe 10</textarea>
       allocateArenas(rounds, arenaCount) {
         if (arenaCount < 1) arenaCount = 1;
         
+        // Juntar todas as partidas em uma lista única
+        const allMatches = [];
+        for (const pairs of rounds) {
+          allMatches.push(...pairs);
+        }
+        
         const schedule = [];
         let roundNumber = 1;
 
-        for (const pairs of rounds) {
-          for (let i = 0; i < pairs.length; i += arenaCount) {
-            const batch = pairs.slice(i, i + arenaCount);
-            const slots = batch.map((match, idx) => ({
-              arena: idx + 1,
-              a: match.a,
-              b: match.b
-            }));
-            
-            schedule.push({ roundNumber, slots });
-            roundNumber++;
-          }
+        // Distribuir as partidas de forma otimizada
+        for (let i = 0; i < allMatches.length; i += arenaCount) {
+          const batch = allMatches.slice(i, i + arenaCount);
+          const slots = batch.map((match, idx) => ({
+            arena: idx + 1,
+            a: match.a,
+            b: match.b
+          }));
+          
+          schedule.push({ roundNumber, slots });
+          roundNumber++;
         }
 
         return schedule;
@@ -566,15 +571,7 @@ Equipe 10</textarea>
         if (mode === 'full') {
           // Full round-robin
           totalMatches = teams.length * (teams.length - 1) / 2;
-          const matchesPerRound = Math.floor(teams.length / 2);
-          const baseRounds = teams.length % 2 === 0 ? teams.length - 1 : teams.length;
-          
-          let totalRoundsNeeded = 0;
-          for (let round = 0; round < baseRounds; round++) {
-            const roundsForThisPhase = Math.ceil(matchesPerRound / arenas);
-            totalRoundsNeeded += roundsForThisPhase;
-          }
-          minRounds = totalRoundsNeeded;
+          minRounds = Math.ceil(totalMatches / arenas);
           efficiencyText = 'Modo atual: Todos vs Todos';
         } else {
           // Group-based
@@ -585,19 +582,7 @@ Equipe 10</textarea>
             return sum + (group.length >= 2 ? group.length * (group.length - 1) / 2 : 0);
           }, 0);
           
-          // Calcular rodadas necessárias para todos os grupos
-          minRounds = 0;
-          groupList.forEach(group => {
-            if (group.length >= 2) {
-              const matchesPerRound = Math.floor(group.length / 2);
-              const baseRounds = group.length % 2 === 0 ? group.length - 1 : group.length;
-              
-              for (let round = 0; round < baseRounds; round++) {
-                const roundsForThisPhase = Math.ceil(matchesPerRound / arenas);
-                minRounds += roundsForThisPhase;
-              }
-            }
-          });
+          minRounds = Math.ceil(totalMatches / arenas);
           
           const fullMatches = teams.length * (teams.length - 1) / 2;
           const reduction = fullMatches > 0 ? Math.round((1 - totalMatches / fullMatches) * 100) : 0;
